@@ -1,0 +1,46 @@
+# ============================================================
+#  Factor Arbitraje RMT — Configuración Principal
+# ============================================================
+
+# --- Universo de Activos ---
+universe:
+  tickers_file: config/tickers.txt   # Un ticker por línea
+  start_date: "2015-01-01"
+  end_date: "2024-12-31"
+
+# --- Ingesta de Datos ---
+data:
+  cache_dir: data/cache
+  raw_dir: data/raw
+  processed_dir: data/processed
+  max_nan_pct: 0.20                  # Máximo % de NaN por ticker
+
+# --- RMT Cleaner ---
+rmt:
+  n_components: null                 # null = automático (Marchenko-Pastur)
+  alpha: 0.0                         # Shrinkage adicional post-filtro
+
+# --- Factor Model ---
+factor_model:
+  n_factors: 5                       # Eigenportfolios a retener
+  zscore_window: 60                  # Ventana rolling para z-scores
+  demean: true
+
+# --- Jump Detector ---
+jump_detector:
+  significance: 0.01                 # Nivel de significancia del test LM
+  window: 252                        # Ventana para BPV local
+
+# --- Backtest ---
+backtest:
+  train_window: 252                  # Días de entrenamiento (lookback)
+  rebalance_freq: "M"                # M=mensual, Q=trimestral, W=semanal
+  zscore_entry: 2.0
+  zscore_exit: 0.5
+  transaction_cost_bps: 5.0
+  max_leverage: 1.0
+
+# --- Logging ---
+logging:
+  level: INFO
+  log_file: logs/run.log
