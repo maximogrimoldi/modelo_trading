@@ -11,21 +11,36 @@ class RMTStrategy:
     """
     Parámetros
     ----------
-    zscore_entry : umbral de z-score para abrir posición (default: 2.0)
+    entry_threshold : abrís posición cuando |z-score| supera este valor (default: 2.0) --> a calibrar con Backtest
+    exit_threshold  : cerrás posición cuando |z-score| vuelve a este valor (default: 0.5) --> a calibrar con Backtest
+
+    Lógica:
+        z > +entry  → short (abrir)
+        z < +exit   → cerrar short
+
+        z < -entry  → long (abrir)
+        z > -exit   → cerrar long
     """
 
     def __init__(
-            self, 
-            zscore_entry=2.0
+            self,
+            entry_threshold=2.0,
+            exit_threshold=0.5,
             ):
-        
-        self.zscore_entry = zscore_entry
+
+        self.entry_threshold = entry_threshold
+        self.exit_threshold = exit_threshold
 
     # ------------------------------------------------------------------
-    def get_signals(self, retornos):
+    def get_signals(self, retornos, posiciones_abiertas=None):
         """
         Recibe un DataFrame de retornos (filas=fechas, columnas=tickers).
-        Devuelve {"long": [...], "short": [...]}.
+
+        posiciones_abiertas : dict con las posiciones que ya tenés abiertas.
+            Ejemplo: {"long": ["AAPL", "NVDA"], "short": ["WMT"]}
+            Si es None (primera vez), solo calcula entradas — no hay nada que cerrar.
+
+        Devuelve {"long": [...], "short": [...], "cerrar_long": [...], "cerrar_short": [...]}.
         """
         R = retornos.values          # (T, N)
         tickers = list(retornos.columns)
@@ -48,7 +63,7 @@ class RMTStrategy:
         V = autovectores[:, factores_idx]    # (N, k) — solo autovectores significativos
 
         if V.shape[1] == 0:
-            return {"long": [], "short": []}
+            return {"long": [], "short": [], "cerrar_long": [], "cerrar_short": []}
 
         # 4. Series de tiempo de factores: F = R @ V → (T, k)
         F = R @ V
@@ -69,14 +84,37 @@ class RMTStrategy:
         desvio[desvio == 0] = np.nan
         zscore = (residuo_acum[-1] - media) / desvio   # último día
 
-        # 9. Señales
+        # 9. Señales de entrada y salida
         zs = pd.Series(zscore, index=tickers)
-        long_list  = list(zs[zs < -self.zscore_entry].index)
-        short_list = list(zs[zs >  self.zscore_entry].index)
 
-        return {"long": long_list, "short": short_list}
+        # Posiciones ya abiertas (vacías si es la primera vez)
+        if posiciones_abiertas is None:
+            abiertas_long  = set()
+            abiertas_short = set()
+        else:
+            abiertas_long  = set(posiciones_abiertas.get("long",  []))
+            abiertas_short = set(posiciones_abiertas.get("short", []))
+
+        ya_en_cartera = abiertas_long | abiertas_short
+
+        # Entradas: solo tickers que no están ya abiertos
+        long_list  = list(zs[zs < -self.entry_threshold].drop(index=ya_en_cartera, errors="ignore").index)
+        short_list = list(zs[zs >  self.entry_threshold].drop(index=ya_en_cartera, errors="ignore").index)
+
+        # Cierres: solo sobre posiciones que realmente tenés abiertas
+        cerrar_long_list  = [t for t in abiertas_long  if zs.get(t, 0) > -self.exit_threshold]
+        cerrar_short_list = [t for t in abiertas_short if zs.get(t, 0) <  self.exit_threshold]
+
+        return {
+            "long":         long_list,
+            "short":        short_list,
+            "cerrar_long":  cerrar_long_list,
+            "cerrar_short": cerrar_short_list,
+        }
 
     # ------------------------------------------------------------------
     def __repr__(self):
-        return f"RMTStrategy(zscore_entry={self.zscore_entry})"
-
+        return (
+            f"RMTStrategy(entry_threshold={self.entry_threshold}, "
+            f"exit_threshold={self.exit_threshold})"
+        )
