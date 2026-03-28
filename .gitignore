@@ -95,3 +95,4 @@ mlflow.db
 MANIFEST
 *.tar.gz
 *.zip
+.vscode/
