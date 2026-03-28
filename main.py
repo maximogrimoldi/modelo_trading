@@ -2,9 +2,16 @@ from data.loader import DataLoader
 from strategy.signals import RMTStrategy
 
 # --- 1. Bajar datos ---
-# Trae los últimos 2 años del S&P 100 desde Yahoo Finance.
-# retornos es un DataFrame: filas = fechas, columnas = tickers.
-loader = DataLoader(lookback=504)
+# periodo + unidad definen cuánto hacia atrás querés ir.
+# frecuencia define el intervalo de cada barra.
+
+# Ejemplos de configuración:
+# DataLoader(periodo=3,  unidad="años",  frecuencia="diaria")    # 3 años de datos diarios
+# DataLoader(periodo=18, unidad="meses", frecuencia="semanal")   # 18 meses de datos semanales
+# DataLoader(periodo=90, unidad="dias",  frecuencia="diaria")    # 90 días de datos diarios
+# DataLoader(periodo=5,  unidad="años",  frecuencia="mensual")   # 5 años de datos mensuales
+
+loader = DataLoader(periodo=3, unidad="años", frecuencia="diaria")
 retornos = loader.get_returns()
 
 # Cómo se ve retornos:
