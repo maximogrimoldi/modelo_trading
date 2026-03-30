@@ -1,63 +1,46 @@
-"""Motor de backtesting vectorizado para la estrategia de Factor Arbitraje.
-
-Implementa un backtest walk-forward con rebalanceo periódico, aplicando
-el pipeline completo: RMTCleaner → FactorModel → JumpDetector → señales → PnL.
+"""
+Backtester: lleva registro de posiciones, calcula P&L por trade y métricas.
+No sabe nada de la estrategia — recibe signals y ejecuta la mecánica de la cartera.
 """
 
-from __future__ import annotations
-
-import logging
-from dataclasses import dataclass, field
-from typing import Optional
-
+import os
 import numpy as np
 import pandas as pd
 
 
-logger = logging.getLogger(__name__)
 
-
-
-class BacktestConfig:
-    """Parámetros de configuración del backtest.
-
-    Attributes:
-        train_window: Días de entrenamiento para ajustar el modelo (lookback).
-        rebalance_freq: Frecuencia de reestimación del modelo ('M', 'Q', 'W').
-        n_factors: Número de eigenportfolios a retener.
-        zscore_entry: Z-score de entrada (apertura de posición).
-        zscore_exit: Z-score de salida (cierre de posición).
-        transaction_cost_bps: Costo de transacción en puntos básicos.
-        max_leverage: Apalancamiento máximo del portafolio.
+class Backtester:
+    """
+    Gestiona el ciclo de vida de las posiciones y registra el historial de trades.
+    Recibe signals de la estrategia y ejecuta apertura, cierre y persistencia.
     """
 
+    def __init__( self, rf=0.0):
+        self.rf = rf              
 
-class BacktestResult:
-    """Resultado completo del backtest.
+    def retorno_posicion(self, entry_price, exit_price, entry_date, exit_date):
+        """Calcula el retorno anualizado de una posición."""
+        if entry_price <= 0 or exit_price <= 0:
+            raise ValueError("Los precios de entrada y salida deben ser mayores a cero.")
+        if exit_date <= entry_date:
+            raise ValueError("La fecha de salida debe ser posterior a la fecha de entrada.")
 
-    Attributes:
-        portfolio_returns: Serie de retornos diarios del portafolio.
-        positions: DataFrame de posiciones diarias por activo (T, N).
-        turnover: Serie de turnover diario.
-        metrics: Diccionario con métricas de performance (Sharpe, MaxDD, etc.).
-        equity_curve: Serie de valor acumulado del portafolio.
-    """
+        # Retorno simple
+        simple_return = (exit_price - entry_price) / entry_price
 
+        # Duración en años
+        duration_years = (exit_date - entry_date).days / 365.25
 
+        # Retorno anualizado
+        annualized_return = (1 + simple_return) ** (1 / duration_years) - 1
 
-
-class BacktestEngine:
-    """Motor de backtesting walk-forward para Factor Arbitraje RMT.
-
-    Itera sobre ventanas de tiempo solapadas, re-estimando el pipeline
-    completo (RMT + Factor Model + Jump Detection) en cada rebalanceo
-    y calculando retornos out-of-sample.
-
-    Attributes:
-        config: Parámetros del backtest (BacktestConfig).
-        rmt_cleaner: Instancia configurada de RMTCleaner.
-        factor_model: Instancia configurada de FactorModel.
-        jump_detector: Instancia configurada de JumpDetector.
-    """
-
+        return annualized_return
     
+    def max_drawdown(self, equity_curve):
+        """Calcula el máximo drawdown de una curva de equity."""
+        cumulative_max = np.maximum.accumulate(equity_curve)
+        drawdowns = (cumulative_max - equity_curve) / cumulative_max
+        return np.max(drawdowns)
+    
+
+
