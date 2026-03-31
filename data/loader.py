@@ -89,11 +89,6 @@ class DataLoader:
         returns = self.calcular_retornos(prices)
         return returns
 
-    def get_prices(self):
-        """Igual que get_returns() pero devuelve precios ajustados (no retornos)."""
-        prices = self.bajar_precios()
-        return self.limpiar_datos(prices)
-
     # ------------------------------------------------------------------
     def bajar_precios(self):
         if self._prices_cache is not None:

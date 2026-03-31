@@ -45,7 +45,6 @@ class TradingRunner:
         print("Descargando datos...")
         loader    = DataLoader(periodo=3, unidad="años", frecuencia="diaria")
         retornos  = loader.get_returns()
-        precios   = loader.get_prices()
         fecha_hoy = retornos.index[-1]
         print(f"  {loader}")
         print(f"  Tickers activos: {retornos.shape[1]}  |  Fechas: {retornos.shape[0]}")
@@ -100,32 +99,30 @@ class TradingRunner:
         else:
             print("  Sin señales hoy.")
 
-        # 5. Guardar posiciones_hoy.csv
+        # 5. Guardar posiciones_hoy.csv — precios de entrada siempre desde TWS
+        from broker.ibkr import IBKRClient
         filas = []
-        for ticker in long_list:
-            precio = float(precios[ticker].iloc[-1]) if ticker in precios.columns else None
-            passed, pvalue = strategy.test_adf(residuos_validos[ticker])
-            filas.append({"ticker": ticker, "accion": "abrir_long",  "precio_entrada": precio,
-                          "fecha": fecha_hoy.date(), "zscore": round(float(zs[ticker]), 4),
-                          "adf_pass": passed, "adf_pvalue": pvalue})
-        for ticker in short_list:
-            precio = float(precios[ticker].iloc[-1]) if ticker in precios.columns else None
-            passed, pvalue = strategy.test_adf(residuos_validos[ticker])
-            filas.append({"ticker": ticker, "accion": "abrir_short", "precio_entrada": precio,
-                          "fecha": fecha_hoy.date(), "zscore": round(float(zs[ticker]), 4),
-                          "adf_pass": passed, "adf_pvalue": pvalue})
-        for ticker in cerrar_long:
-            precio = float(precios[ticker].iloc[-1]) if ticker in precios.columns else None
-            passed, pvalue = strategy.test_adf(residuos_validos[ticker])
-            filas.append({"ticker": ticker, "accion": "cerrar_long",  "precio_entrada": precio,
-                          "fecha": fecha_hoy.date(), "zscore": round(float(zs.get(ticker, float("nan"))), 4),
-                          "adf_pass": passed, "adf_pvalue": pvalue})
-        for ticker in cerrar_short:
-            precio = float(precios[ticker].iloc[-1]) if ticker in precios.columns else None
-            passed, pvalue = strategy.test_adf(residuos_validos[ticker])
-            filas.append({"ticker": ticker, "accion": "cerrar_short", "precio_entrada": precio,
-                          "fecha": fecha_hoy.date(), "zscore": round(float(zs.get(ticker, float("nan"))), 4),
-                          "adf_pass": passed, "adf_pvalue": pvalue})
+        with IBKRClient() as ib:
+            for ticker in long_list:
+                passed, pvalue = strategy.test_adf(residuos_validos[ticker])
+                filas.append({"ticker": ticker, "accion": "abrir_long",  "precio_entrada": ib.get_price(ticker),
+                              "fecha": fecha_hoy.date(), "zscore": round(float(zs[ticker]), 4),
+                              "adf_pass": passed, "adf_pvalue": pvalue})
+            for ticker in short_list:
+                passed, pvalue = strategy.test_adf(residuos_validos[ticker])
+                filas.append({"ticker": ticker, "accion": "abrir_short", "precio_entrada": ib.get_price(ticker),
+                              "fecha": fecha_hoy.date(), "zscore": round(float(zs[ticker]), 4),
+                              "adf_pass": passed, "adf_pvalue": pvalue})
+            for ticker in cerrar_long:
+                passed, pvalue = strategy.test_adf(residuos_validos[ticker])
+                filas.append({"ticker": ticker, "accion": "cerrar_long",  "precio_entrada": ib.get_price(ticker),
+                              "fecha": fecha_hoy.date(), "zscore": round(float(zs.get(ticker, float("nan"))), 4),
+                              "adf_pass": passed, "adf_pvalue": pvalue})
+            for ticker in cerrar_short:
+                passed, pvalue = strategy.test_adf(residuos_validos[ticker])
+                filas.append({"ticker": ticker, "accion": "cerrar_short", "precio_entrada": ib.get_price(ticker),
+                              "fecha": fecha_hoy.date(), "zscore": round(float(zs.get(ticker, float("nan"))), 4),
+                              "adf_pass": passed, "adf_pvalue": pvalue})
 
         n_pass = sum(f["adf_pass"] for f in filas)
         print(f"  ADF: {n_pass}/{len(filas)} señales con residuo estacionario")

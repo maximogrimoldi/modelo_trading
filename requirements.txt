@@ -12,6 +12,7 @@ statsmodels>=0.14.0
 
 # ---------- Datos de Mercado ----------
 yfinance>=0.2.38
+ibapi>=9.81.0
 
 # ---------- Serialización ----------
 pyarrow>=16.0.0
