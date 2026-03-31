@@ -57,6 +57,7 @@ class DataLoader:
         self.tickers = tickers or SP100_TICKERS
         self.fill_method = fill_method
         self.min_coverage = min_coverage
+        self._prices_cache = None
 
         if frecuencia not in FRECUENCIAS:
             raise ValueError(f"frecuencia debe ser una de: {list(FRECUENCIAS)}")
@@ -95,6 +96,9 @@ class DataLoader:
 
     # ------------------------------------------------------------------
     def bajar_precios(self):
+        if self._prices_cache is not None:
+            return self._prices_cache
+
         raw = yf.download(
             self.tickers,
             start=self.start_date.strftime("%Y-%m-%d"),
@@ -108,6 +112,7 @@ class DataLoader:
         else:
             prices = raw[["Close"]].rename(columns={"Close": self.tickers[0]})
 
+        self._prices_cache = prices
         return prices
 
     def limpiar_datos(self, prices):
