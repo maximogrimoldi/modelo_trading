@@ -56,6 +56,7 @@ def main():
         frecuencia="diaria",
     )
     prices = loader.get_prices()
+    opens  = loader.get_opens()
     print(f"  {prices.shape[1]} tickers  |  {len(prices)} barras  "
           f"({prices.index[0].date()} → {prices.index[-1].date()})")
 
@@ -65,6 +66,7 @@ def main():
 
     engine = BacktestEngine(
         prices=prices,
+        opens=opens,
         strategy=strategy,
         initial_capital=INITIAL_CAPITAL,
         commission=COMMISSION,

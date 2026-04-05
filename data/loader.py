@@ -89,26 +89,44 @@ class DataLoader:
         return returns
 
     def get_prices(self):
-        """Igual que get_returns() pero devuelve precios ajustados (no retornos)."""
+        """Devuelve precios de cierre ajustados."""
         prices = self.bajar_precios()
         return self.limpiar_datos(prices)
 
+    def get_opens(self):
+        """Devuelve precios de apertura ajustados (mismo universo que get_prices)."""
+        opens = self.bajar_opens()
+        return self.limpiar_datos(opens)
+
     # ------------------------------------------------------------------
+    def _get_raw(self):
+        """Descarga y cachea el raw OHLCV para no llamar a yfinance dos veces."""
+        if not hasattr(self, "_raw_cache"):
+            self._raw_cache = yf.download(
+                self.tickers,
+                start=self.start_date.strftime("%Y-%m-%d"),
+                end=self.end_date.strftime("%Y-%m-%d"),
+                interval=FRECUENCIAS[self.frecuencia],
+                auto_adjust=True,
+                progress=False,
+            )
+        return self._raw_cache
+
     def bajar_precios(self):
-        raw = yf.download(
-            self.tickers,
-            start=self.start_date.strftime("%Y-%m-%d"),
-            end=self.end_date.strftime("%Y-%m-%d"),
-            interval=FRECUENCIAS[self.frecuencia],
-            auto_adjust=True,
-            progress=False,
-        )
+        raw = self._get_raw()
         if isinstance(raw.columns, pd.MultiIndex):
             prices = raw["Close"]
         else:
             prices = raw[["Close"]].rename(columns={"Close": self.tickers[0]})
-
         return prices
+
+    def bajar_opens(self):
+        raw = self._get_raw()
+        if isinstance(raw.columns, pd.MultiIndex):
+            opens = raw["Open"]
+        else:
+            opens = raw[["Open"]].rename(columns={"Open": self.tickers[0]})
+        return opens
 
     def limpiar_datos(self, prices):
         # Solo días de semana (irrelevante en semanal/mensual pero no rompe nada)

@@ -110,17 +110,16 @@ class RMTBacktestStrategy(Strategy):
         abiertas_short = set(open_positions.get("short", []))
         ya_en_cartera  = abiertas_long | abiertas_short
 
+        new_longs  = list(zs[zs < -self.rmt.entry_threshold].drop(index=ya_en_cartera, errors="ignore").index)
+        new_shorts = list(zs[zs >  self.rmt.entry_threshold].drop(index=ya_en_cartera, errors="ignore").index)
+        scores = {t: abs(float(zs[t])) for t in new_longs + new_shorts}
+
         return {
-            "long":  list(
-                zs[zs < -self.rmt.entry_threshold]
-                .drop(index=ya_en_cartera, errors="ignore").index
-            ),
-            "short": list(
-                zs[zs >  self.rmt.entry_threshold]
-                .drop(index=ya_en_cartera, errors="ignore").index
-            ),
+            "long":         new_longs,
+            "short":        new_shorts,
             "cerrar_long":  [t for t in abiertas_long  if zs.get(t, 0) > -self.rmt.exit_threshold],
             "cerrar_short": [t for t in abiertas_short if zs.get(t, 0) <  self.rmt.exit_threshold],
+            "scores":       scores,
         }
 
     def __repr__(self) -> str:
