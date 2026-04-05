@@ -137,3 +137,72 @@ class DataLoader:
             f"desde={self.start_date.date()}, hasta={self.end_date.date()}, "
             f"frecuencia={self.frecuencia})"
         )
+
+
+# ─── Helpers para backtesting single-ticker ───────────────────────────────────
+
+def load_ohlcv(
+    ticker: str,
+    start: str,
+    end: str | None = None,
+    interval: str = "1d",
+) -> pd.DataFrame:
+    """
+    Descarga datos OHLCV de un único ticker desde Yahoo Finance.
+
+    Parámetros
+    ----------
+    ticker   : str  — símbolo bursátil (ej. "AAPL", "MSFT").
+    start    : str  — fecha de inicio en formato "YYYY-MM-DD".
+    end      : str  — fecha de fin (default: hoy).
+    interval : str  — granularidad yfinance (default: "1d").
+
+    Retorna
+    -------
+    pd.DataFrame con DatetimeIndex y columnas Open, High, Low, Close, Volume.
+    """
+    end_date = end or pd.Timestamp.today().strftime("%Y-%m-%d")
+    raw = yf.download(
+        ticker,
+        start=start,
+        end=end_date,
+        interval=interval,
+        auto_adjust=True,
+        progress=False,
+    )
+    # yfinance a veces devuelve MultiIndex cuando se pasa un solo ticker
+    if isinstance(raw.columns, pd.MultiIndex):
+        raw.columns = raw.columns.droplevel(1)
+
+    df = raw[["Open", "High", "Low", "Close", "Volume"]].dropna()
+    df.index = pd.to_datetime(df.index)
+    df.index.name = "Date"
+    return df
+
+
+def load_ohlcv_from_csv(filepath: str, date_column: str = "Date") -> pd.DataFrame:
+    """
+    Carga datos OHLCV desde un CSV local.
+
+    El CSV debe tener columnas: Date, Open, High, Low, Close, Volume.
+    La columna de fechas se usa como índice.
+
+    Parámetros
+    ----------
+    filepath    : str — ruta al archivo CSV.
+    date_column : str — nombre de la columna de fechas (default: "Date").
+
+    Retorna
+    -------
+    pd.DataFrame con DatetimeIndex y columnas Open, High, Low, Close, Volume.
+    """
+    df = pd.read_csv(filepath, parse_dates=[date_column], index_col=date_column)
+    df.index = pd.to_datetime(df.index)
+    df.index.name = "Date"
+
+    required = {"Open", "High", "Low", "Close", "Volume"}
+    missing = required - set(df.columns)
+    if missing:
+        raise ValueError(f"El CSV debe tener columnas {required}. Faltan: {missing}")
+
+    return df[["Open", "High", "Low", "Close", "Volume"]].dropna()

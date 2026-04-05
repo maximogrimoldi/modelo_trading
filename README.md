@@ -1,129 +1,27 @@
-# Factor Arbitraje RMT — Motor Cuantitativo
+# Motor de Trading RMT — Backtesting & Señales
 
-Motor de **Factor Arbitraje Estadístico** basado en **Random Matrix Theory (RMT)** y **Detección de Saltos de Lee-Mykland**. Diseñado para operar en universos de ~100 activos con un pipeline de señales riguroso y backtesting walk-forward.
-
----
-
-## Arquitectura del Motor
-
-```
-┌──────────────────────────────────────────────────────────┐
-│                      PIPELINE                            │
-│                                                          │
-│  [DataIngestion]  →  [RMTCleaner]  →  [FactorModel]     │
-│       ↓                   ↓                ↓             │
-│  Precios OHLC      Corr. denoised    Eigenportfolios     │
-│  Log-retornos      Marchenko-Pastur  + Residuos          │
-│                                         ↓                │
-│                               [JumpDetector]             │
-│                                Lee-Mykland               │
-│                                         ↓                │
-│                               [BacktestEngine]           │
-│                               Walk-Forward + PnL         │
-└──────────────────────────────────────────────────────────┘
-```
+Motor de **statistical arbitrage** basado en **Random Matrix Theory (RMT)** con un motor de backtesting genérico y desacoplado de cualquier estrategia concreta.
 
 ---
 
-## Descripción Técnica de los Módulos
-
-### 1. `DataIngestion` — `src/data_io/ingestion.py`
-
-Gestiona la ingesta y persistencia de datos de mercado.
-
-- Descarga precios de cierre ajustados via **yfinance**.
-- Caché incremental en formato **Parquet** (Snappy) para minimizar llamadas a la API.
-- Limpieza automática: elimina tickers con más del 20 % de NaN y aplica forward-fill.
-- Calcula **log-retornos** diarios: $r_t = \ln(P_t / P_{t-1})$.
-
-### 2. `RMTCleaner` — `src/models/rmt_cleaner.py`
-
-Elimina el ruido aleatorio de la matriz de correlación empírica usando la **Ley de Marchenko-Pastur**.
-
-**Fundamento teórico:**
-Dada una matriz de retornos $X \in \mathbb{R}^{T \times N}$ con $q = T/N$, la distribución de eigenvalores de una matriz de Wishart aleatoria tiene soporte:
-
-$$\lambda^\pm = \sigma^2 \left(1 \pm \frac{1}{\sqrt{q}}\right)^2$$
-
-Eigenvalores $\lambda_i > \lambda^+$ contienen señal genuina; el resto es ruido.
-
-**Pasos:**
-1. Calcular $C = \frac{1}{T} X^T X$ (correlación empírica).
-2. Descomponer: $C = V \Lambda V^T$ con `np.linalg.eigh`.
-3. Estimar $\sigma^2$ y $\lambda^+$ ajustando la PDF de Marchenko-Pastur.
-4. Reemplazar eigenvalores de ruido preservando la traza: $C_{clean} = V \tilde{\Lambda} V^T$.
-
-### 3. `FactorModel` — `src/models/factor_model.py`
-
-Construye **eigenportfolios** ortogonales y calcula los **residuos idiosincráticos**.
-
-**Modelo:**
-
-$$r_t = B f_t + \varepsilon_t$$
-
-Donde:
-- $B \in \mathbb{R}^{N \times K}$: matriz de cargas (loadings), columnas = eigenvectores de señal.
-- $f_t = B^T r_t \in \mathbb{R}^K$: retornos de los K eigenportfolios.
-- $\varepsilon_t = r_t - B f_t$: residuos idiosincráticos (señal de trading).
-
-Las señales surgen de z-scores rolling de $\varepsilon_t$: valores extremos ($|z| > 2$) sugieren reversión a la media estadísticamente significativa.
-
-### 4. `JumpDetector` — `src/models/jump_detector.py`
-
-Implementa el test no paramétrico de **Lee & Mykland (2008)** para identificar saltos de precio que contaminarían las señales de reversión.
-
-**Estadístico:**
-
-$$L(t) = \frac{r_t}{\widehat{BPV}_t^{1/2}}$$
-
-Donde la **Variación Bipower** local estima la varianza del componente continuo:
-
-$$\widehat{BPV}_t = \frac{\pi}{2} \sum_{i=t-W}^{t} |r_i| \cdot |r_{i-1}|$$
-
-Se rechaza la hipótesis nula (sin salto) si $|L(t)|$ excede el cuantil de la distribución de máximos de normales estándar. Las observaciones con salto detectado son excluidas del cálculo de señales.
-
-### 5. `BacktestEngine` — `src/backtest/engine.py`
-
-Motor de backtesting **walk-forward** vectorizado.
-
-**Flujo:**
-1. Generar fechas de rebalanceo (mensual / trimestral).
-2. Por cada período: ajustar RMT + FactorModel en ventana de entrenamiento.
-3. Calcular z-scores out-of-sample y filtrar saltos.
-4. Generar posiciones con regla de entrada/salida basada en z-score.
-5. Calcular retornos del portafolio descontando costos de transacción.
-
-**Métricas reportadas:** Sharpe, Sortino, Max Drawdown, CAGR, Calmar Ratio.
-
----
-
-## Estructura del Proyecto
+## Arquitectura
 
 ```
-Modelo de Trading/
-├── config/
-│   ├── config.yaml          # Parámetros del pipeline y backtest
-│   └── tickers.txt          # Universo de activos (un ticker por línea)
+modelo_trading/
 ├── data/
-│   ├── raw/                 # Datos crudos (excluidos de git)
-│   ├── processed/           # Datos procesados (excluidos de git)
-│   └── cache/               # Caché Parquet (excluido de git)
-├── notebooks/               # Exploración y análisis (Jupyter)
-├── src/
-│   ├── backtest/
-│   │   └── engine.py        # Motor walk-forward
-│   ├── data_io/
-│   │   └── ingestion.py     # Descarga y caché de precios
-│   ├── models/
-│   │   ├── rmt_cleaner.py   # Denoising Marchenko-Pastur
-│   │   ├── jump_detector.py # Test Lee-Mykland
-│   │   └── factor_model.py  # PCA + Eigenportfolios + Residuos
-│   └── utils/
-│       └── helpers.py       # Logger y carga de config
-├── tests/                   # Tests unitarios e integración
-├── main.py                  # Entry point (argparse)
-├── requirements.txt
-└── .gitignore
+│   ├── loader.py          # DataLoader (multi-ticker) + load_ohlcv / load_ohlcv_from_csv
+│   └── __init__.py
+├── strategy/
+│   ├── base.py            # Interfaz Strategy (ABC) — contrato que toda estrategia cumple
+│   ├── signals.py         # RMTStrategy — pipeline RMT completo
+│   └── __init__.py
+├── backtest/
+│   ├── engine.py          # BacktestEngine — loop, portafolio, métricas, gráfico
+│   └── __init__.py
+├── example_strategy.py    # SMACrossover — ejemplo de implementación de Strategy
+├── run.py                 # Entry point: carga datos → estrategia → engine → resultados
+├── main.py                # Pipeline RMT completo (generación de señales, no backtest)
+└── requirements.txt
 ```
 
 ---
@@ -131,38 +29,171 @@ Modelo de Trading/
 ## Instalación
 
 ```bash
-# Crear entorno virtual
-python -m venv .venv
-source .venv/bin/activate  # macOS/Linux
+python -m venv venv
+source venv/bin/activate      # macOS/Linux
+# venv\Scripts\activate       # Windows
 
-# Instalar dependencias
 pip install -r requirements.txt
 ```
 
 ---
 
-## Uso
+## Uso rápido — Backtest
 
 ```bash
-# Ejecutar backtest completo
-python main.py backtest --config config/config.yaml
-
-# Forzar re-descarga de datos
-python main.py backtest --config config/config.yaml --refresh-data
-
-# Escanear señales activas (top 10)
-python main.py scan --config config/config.yaml --top-n 10
-
-# Cambiar nivel de logging
-python main.py --log-level DEBUG backtest
+# Correr el backtest con la estrategia de ejemplo (SMA Crossover)
+python run.py
 ```
+
+Esto:
+1. Descarga datos OHLCV de AAPL (2020–2024) vía yfinance.
+2. Corre la estrategia de cruce de medias móviles.
+3. Imprime métricas de performance (retorno, Sharpe, drawdown, win rate, profit factor).
+4. Guarda en `results/`: CSV de trades, equity curve y gráfico PNG.
+
+---
+
+## Uso rápido — Señales RMT (pipeline original)
+
+```bash
+python main.py
+```
+
+Descarga 3 años del S&P 100, calcula residuos rolling y muestra señales long/short.
+
+---
+
+## Cómo crear una nueva estrategia
+
+### 1. Creá el archivo
+
+```python
+# rmt_strategy.py  (en la raíz del proyecto)
+import pandas as pd
+from strategy.base import Strategy
+
+class RMTBacktestStrategy(Strategy):
+    """Adaptador de RMTStrategy a la interfaz de backtesting."""
+
+    def __init__(self, entry_threshold=2.0, exit_threshold=0.5, ventana=252):
+        self.entry_threshold = entry_threshold
+        self.exit_threshold = exit_threshold
+        self.ventana = ventana
+        # Estado interno (si tu estrategia necesita memoria entre barras)
+        self._in_position = False
+
+    def generate_signal(self, df: pd.DataFrame) -> str:
+        """
+        df: OHLCV con historia hasta la barra actual (sin lookahead).
+        Retorna "buy", "sell" o "hold".
+        """
+        # Tu lógica acá — podés usar self._in_position para rastrear estado
+        # Ejemplo: calculá z-scores sobre los retornos de df["Close"]
+        ...
+        return "hold"
+```
+
+### 2. Conectala en run.py
+
+En `run.py`, reemplazá el bloque marcado con `──►`:
+
+```python
+# Antes (estrategia de ejemplo):
+from example_strategy import SMACrossover
+strategy = SMACrossover(fast_window=10, slow_window=30)
+
+# Después (tu estrategia):
+from rmt_strategy import RMTBacktestStrategy
+strategy = RMTBacktestStrategy(entry_threshold=2.0, exit_threshold=0.5)
+```
+
+**Eso es todo.** No modificás ningún otro archivo.
+
+---
+
+## Contrato de la interfaz Strategy
+
+```python
+from strategy.base import Strategy
+import pandas as pd
+
+class MiEstrategia(Strategy):
+    def generate_signal(self, df: pd.DataFrame) -> str:
+        """
+        Parámetro
+        ─────────
+        df : pd.DataFrame
+            OHLCV con DatetimeIndex.
+            Columnas: Open, High, Low, Close, Volume.
+            Contiene solo barras hasta la actual (sin lookahead).
+
+        Retorna
+        ───────
+        "buy"  → abrir posición larga (ignorado si ya hay posición).
+        "sell" → cerrar posición larga (ignorado si no hay posición).
+        "hold" → no hacer nada.
+        """
+        ...
+```
+
+---
+
+## Carga de datos
+
+```python
+from data.loader import load_ohlcv, load_ohlcv_from_csv
+
+# Desde yfinance
+df = load_ohlcv("AAPL", start="2020-01-01", end="2024-12-31")
+
+# Desde CSV local (debe tener columnas: Date, Open, High, Low, Close, Volume)
+df = load_ohlcv_from_csv("data/AAPL.csv")
+```
+
+---
+
+## Métricas calculadas por el engine
+
+| Métrica | Descripción |
+|---|---|
+| `total_return_pct` | Retorno total del período (%) |
+| `annualized_return_pct` | Retorno anualizado (%) |
+| `sharpe_ratio` | Sharpe Ratio anualizado (exceso sobre rf) |
+| `max_drawdown_pct` | Máximo drawdown desde pico (%) |
+| `calmar_ratio` | Retorno anualizado / Max Drawdown |
+| `n_trades` | Número de operaciones completadas |
+| `win_rate_pct` | Porcentaje de trades ganadores |
+| `profit_factor` | Ganancias brutas / Pérdidas brutas |
+| `avg_profit_usd` | Ganancia promedio por trade (USD) |
+| `avg_return_pct` | Retorno promedio por trade (%) |
+| `avg_duration_days` | Duración promedio de cada trade (días) |
+
+Los costos de transacción (comisión + slippage) se aplican en cada operación:
+- **Comisión**: fracción del valor operado (default: 0.1%)
+- **Slippage**: el precio de compra sube y el de venta baja (default: 0.05%)
+
+---
+
+## Decisiones de diseño
+
+### Desacoplamiento total
+El `BacktestEngine` importa únicamente `strategy.base.Strategy`. Nunca importa ninguna estrategia concreta. Si mañana tenés 10 estrategias distintas, el engine no cambia.
+
+### Sin lookahead bias
+En cada barra `i`, la estrategia recibe `df.iloc[:i+1]` — solo el pasado. Nunca tiene acceso a datos futuros.
+
+### Modelo de ejecución
+Las operaciones se ejecutan al cierre de la barra que genera la señal, con slippage aplicado:
+- Compra: `close × (1 + slippage)`
+- Venta: `close × (1 − slippage)`
+
+### Position sizing
+El engine implementa una posición simple "all-in": invierte todo el efectivo disponible en cada compra. Para sizing más sofisticado (Kelly, volatility targeting, etc.), extendé `BacktestEngine`.
 
 ---
 
 ## Referencias
 
-- Marchenko, V. A. & Pastur, L. A. (1967). *Distribution of eigenvalues for some sets of random matrices.*
-- Laloux, L. et al. (1999). *Noise Dressing of Financial Correlation Matrices.* PRL.
-- Plerou, V. et al. (2002). *Random matrix approach to cross correlations in financial data.* PRE.
-- Lee, S. S. & Mykland, P. A. (2008). *Jumps in financial markets: A new nonparametric test and jump dynamics.* RFS.
-- Avellaneda, M. & Lee, J. H. (2010). *Statistical arbitrage in the US equities market.* QF.
+- Marchenko & Pastur (1967). *Distribution of eigenvalues for some sets of random matrices.*
+- Laloux et al. (1999). *Noise Dressing of Financial Correlation Matrices.* PRL.
+- Avellaneda & Lee (2010). *Statistical arbitrage in the US equities market.* QF.
