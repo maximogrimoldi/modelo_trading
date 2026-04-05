@@ -34,6 +34,7 @@ class TradingRunner:
     entry_threshold  : float — z-score para abrir posición (default: 2.0).
     exit_threshold   : float — z-score para cerrar posición (default: 0.5).
     results_path     : str   — carpeta donde se guardan los outputs (default: "results/").
+    posiciones_abiertas: dict — {"long": [...], "short": [...]} para override manual del estado.
     """
 
     def __init__(
@@ -46,16 +47,18 @@ class TradingRunner:
         entry_threshold=2.0,
         exit_threshold=0.5,
         results_path="results/",
+        posiciones_abiertas=None,
     ):
-        self.capital          = capital
-        self.position_fraction = position_fraction
-        self.rf               = rf
-        self.ventana_betas    = ventana_betas
-        self.ventana_zscore   = ventana_zscore
-        self.entry_threshold  = entry_threshold
-        self.exit_threshold   = exit_threshold
-        self.results_path     = results_path
-        self.ruta_estado      = os.path.join(results_path, "posiciones_abiertas.csv")
+        self.capital             = capital
+        self.position_fraction   = position_fraction
+        self.rf                  = rf
+        self.ventana_betas       = ventana_betas
+        self.ventana_zscore      = ventana_zscore
+        self.entry_threshold     = entry_threshold
+        self.exit_threshold      = exit_threshold
+        self.results_path        = results_path
+        self.posiciones_abiertas = posiciones_abiertas  # override manual {"long": [...], "short": [...]}
+        self.ruta_estado         = os.path.join(results_path, "posiciones_abiertas.csv")
 
     # ── Estado persistido ─────────────────────────────────────────────────────
 
@@ -119,7 +122,6 @@ class TradingRunner:
         # 4. Señales del día
         long_list  = set(zs[zs < -strategy.entry_threshold].index)
         short_list = set(zs[zs >  strategy.entry_threshold].index)
-        señales_hoy = long_list | short_list
 
         # 5. Cargar estado anterior
         estado = self._cargar_estado()
@@ -219,9 +221,7 @@ class TradingRunner:
         df_hoy.to_csv(ruta_pos, index=False)
 
         # 9. Actualizar estado persistido
-        # Eliminar posiciones cerradas
         estado = estado[~estado["ticker"].isin(a_cerrar)]
-        # Agregar posiciones nuevas
         nuevas_filas = []
         for ticker in nuevas:
             lado   = "long" if ticker in long_list else "short"
@@ -276,7 +276,11 @@ class TradingRunner:
             print(f"  Guardado: {ruta_plot}")
 
 
-# Ejemplos de uso
-example = TradingRunner(capital=100_000, position_fraction=0.20, rf=0.04)
-example.run()
+# Ejemplo con posiciones abiertas:
+# TradingRunner(
+#     rf=0.04,
+#     posiciones_abiertas={"long": ["AAPL", "MSFT"], "short": ["CVX"]}
+# ).run()
 
+if __name__ == "__main__":
+    TradingRunner(capital=100_000, position_fraction=0.20, rf=0.04).run()

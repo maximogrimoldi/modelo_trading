@@ -53,7 +53,7 @@ class DataLoader:
         fill_method="ffill",
         min_coverage=0.9,
     ):
-        
+
         self.tickers = tickers or SP100_TICKERS
         self.fill_method = fill_method
         self.min_coverage = min_coverage
