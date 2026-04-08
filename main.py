@@ -4,7 +4,7 @@ Descarga datos, calcula residuos rolling, genera señales y guarda los resultado
 
 Gestión de estado entre corridas
 ──────────────────────────────────
-posiciones_abiertas.csv persiste el portafolio actual entre ejecuciones.
+portafolio_activo.csv persiste el portafolio actual entre ejecuciones.
 Cada vez que corrés main.py:
   - Señal nueva            → se calcula la inversión sugerida y se agrega al estado.
   - Ya en cartera          → se muestra el retorno no realizado desde la entrada.
@@ -34,7 +34,6 @@ class TradingRunner:
     entry_threshold  : float — z-score para abrir posición (default: 2.0).
     exit_threshold   : float — z-score para cerrar posición (default: 0.5).
     results_path     : str   — carpeta donde se guardan los outputs (default: "results/").
-    posiciones_abiertas: dict — {"long": [...], "short": [...]} para override manual del estado.
     """
 
     def __init__(
@@ -47,7 +46,6 @@ class TradingRunner:
         entry_threshold=2.0,
         exit_threshold=0.5,
         results_path="results/",
-        posiciones_abiertas=None,
     ):
         self.capital             = capital
         self.position_fraction   = position_fraction
@@ -57,8 +55,7 @@ class TradingRunner:
         self.entry_threshold     = entry_threshold
         self.exit_threshold      = exit_threshold
         self.results_path        = results_path
-        self.posiciones_abiertas = posiciones_abiertas  # override manual {"long": [...], "short": [...]}
-        self.ruta_estado         = os.path.join(results_path, "posiciones_abiertas.csv")
+        self.ruta_estado         = os.path.join(results_path, "portafolio_activo.csv")
 
     # ── Estado persistido ─────────────────────────────────────────────────────
 
@@ -91,10 +88,7 @@ class TradingRunner:
 
     def run(self):
         os.makedirs(self.results_path, exist_ok=True)
-        strategy = RMTStrategy(
-            entry_threshold=self.entry_threshold,
-            exit_threshold=self.exit_threshold,
-        )
+        strategy = RMTStrategy()
 
         # 1. Bajar datos
         print("Descargando datos...")
@@ -120,8 +114,8 @@ class TradingRunner:
         zs   = pd.Series(strategy.zscore(acum), index=residuos_validos.columns)
 
         # 4. Señales del día
-        long_list  = set(zs[zs < -strategy.entry_threshold].index)
-        short_list = set(zs[zs >  strategy.entry_threshold].index)
+        long_list  = set(zs[zs < -self.entry_threshold].index)
+        short_list = set(zs[zs >  self.entry_threshold].index)
 
         # 5. Cargar estado anterior
         estado = self._cargar_estado()
@@ -138,9 +132,9 @@ class TradingRunner:
             if t not in zs.index:
                 continue
             z = float(zs[t])
-            if row["lado"] == "long"  and z > -strategy.exit_threshold:
+            if row["lado"] == "long"  and z > -self.exit_threshold:
                 a_cerrar.append(t)
-            if row["lado"] == "short" and z <  strategy.exit_threshold:
+            if row["lado"] == "short" and z <  self.exit_threshold:
                 a_cerrar.append(t)
 
         # 6. Sizing para señales nuevas
@@ -186,7 +180,7 @@ class TradingRunner:
                 "lado":                 row["lado"],
                 "precio_actual":        round(precio_actual, 2) if precio_actual else None,
                 "zscore_hoy":           round(float(zs[ticker]), 4),
-                "inversion_sugerida":   None,
+                "inversion_sugerida":   f"${float(row['inversion_usd']):,.0f}" if pd.notna(row.get('inversion_usd')) else None,
                 "precio_entrada":       round(precio_entrada, 2),
                 "fecha_entrada":        str(row["fecha_entrada"])[:10],
                 "retorno_no_realizado": round(ret, 2) if ret is not None else None,
@@ -209,15 +203,15 @@ class TradingRunner:
                 "lado":                 row["lado"],
                 "precio_actual":        round(precio_actual, 2) if precio_actual else None,
                 "zscore_hoy":           round(float(zs[ticker]), 4),
-                "inversion_sugerida":   None,
+                "inversion_sugerida":   f"${float(row['inversion_usd']):,.0f}" if pd.notna(row.get('inversion_usd')) else None,
                 "precio_entrada":       round(precio_entrada, 2),
                 "fecha_entrada":        str(row["fecha_entrada"])[:10],
                 "retorno_no_realizado": round(ret, 2) if ret is not None else None,
             })
 
-        # 8. Guardar posiciones_hoy.csv
+        # 8. Guardar operaciones_a_realizar.csv
         df_hoy = pd.DataFrame(filas)
-        ruta_pos = os.path.join(self.results_path, "posiciones_hoy.csv")
+        ruta_pos = os.path.join(self.results_path, "operaciones_a_realizar.csv")
         df_hoy.to_csv(ruta_pos, index=False)
 
         # 9. Actualizar estado persistido
@@ -244,43 +238,21 @@ class TradingRunner:
         cartera_df = df_hoy[df_hoy["tipo"] == "EN_CARTERA"]
         cerrar_df  = df_hoy[df_hoy["tipo"] == "CERRAR"]
 
-        if not nuevas_df.empty:
-            print(f"\n  NUEVAS ({len(nuevas_df)}):")
-            for _, r in nuevas_df.iterrows():
-                print(f"    {r['lado'].upper():<5}  {r['ticker']:<8}  z={r['zscore_hoy']:+.2f}"
-                      f"  →  invertir ${r['inversion_sugerida']:,.0f}")
-        if not cerrar_df.empty:
-            print(f"\n  CERRAR ({len(cerrar_df)}):")
-            for _, r in cerrar_df.iterrows():
-                signo = "+" if r["retorno_no_realizado"] and r["retorno_no_realizado"] > 0 else ""
-                ret_str = f"{signo}{r['retorno_no_realizado']:.2f}%" if r["retorno_no_realizado"] is not None else "N/A"
-                print(f"    {r['lado'].upper():<5}  {r['ticker']:<8}  z={r['zscore_hoy']:+.2f}"
-                      f"  retorno: {ret_str}")
-        if not cartera_df.empty:
-            print(f"\n  EN CARTERA ({len(cartera_df)}):")
-            for _, r in cartera_df.iterrows():
-                signo = "+" if r["retorno_no_realizado"] and r["retorno_no_realizado"] > 0 else ""
-                ret_str = f"{signo}{r['retorno_no_realizado']:.2f}%" if r["retorno_no_realizado"] is not None else "N/A"
-                print(f"    {r['lado'].upper():<5}  {r['ticker']:<8}  z={r['zscore_hoy']:+.2f}"
-                      f"  retorno: {ret_str}  (entrada: ${r['precio_entrada']:,.2f})")
+        print(f"  Nuevas: {len(nuevas_df)}  |  Cerrar: {len(cerrar_df)}  |  En cartera: {len(cartera_df)}")
         if nuevas_df.empty and cerrar_df.empty and cartera_df.empty:
             print("  Sin señales hoy.")
 
-        print(f"\n  Guardado: {ruta_pos}")
-        print(f"  Estado actualizado: {self.ruta_estado}")
+        print(f"\n  operaciones_a_realizar.csv → {ruta_pos}")
+        print(f"  portafolio_activo.csv      → {self.ruta_estado}")
 
         # 11. Plot de autovalores
         if autovalores is not None:
             ruta_plot = os.path.join(self.results_path, "autovalores_plot.png")
             strategy.plot_autovalores(autovalores, lambda_max, ruta_plot)
-            print(f"  Guardado: {ruta_plot}")
+            print(f"  autovalores_plot.png       → {ruta_plot}")
 
-
-# Ejemplo con posiciones abiertas:
-# TradingRunner(
-#     rf=0.04,
-#     posiciones_abiertas={"long": ["AAPL", "MSFT"], "short": ["CVX"]}
-# ).run()
 
 if __name__ == "__main__":
     TradingRunner(capital=100_000, position_fraction=0.20, rf=0.04).run()
+
+

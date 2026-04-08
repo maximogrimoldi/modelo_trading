@@ -12,12 +12,8 @@ import os
 
 from data.loader import DataLoader
 from backtest.engine import BacktestEngine
+from strategy.rmt_backtest import RMTBacktestStrategy
 
-# ─────────────────────────────────────────────────────────────────────────────
-# ──► PASO 1: Elegí la estrategia
-#
-#     Opción A — RMT (estrategia principal):
-from rmt_strategy import RMTBacktestStrategy
 strategy = RMTBacktestStrategy(
     entry_threshold=2.0,
     exit_threshold=0.5,

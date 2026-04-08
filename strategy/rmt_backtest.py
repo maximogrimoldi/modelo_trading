@@ -43,14 +43,11 @@ class RMTBacktestStrategy(Strategy):
         ventana_betas: int = 252,
         ventana_zscore: int = 252,
     ):
-        self.rmt = RMTStrategy(
-            entry_threshold=entry_threshold,
-            exit_threshold=exit_threshold,
-        )
-        self.ventana_betas = ventana_betas
-        self.ventana_zscore = ventana_zscore
-
-        # Historial de residuos acumulados barra a barra (lista de arrays 1D)
+        self.rmt              = RMTStrategy()
+        self.entry_threshold  = entry_threshold
+        self.exit_threshold   = exit_threshold
+        self.ventana_betas    = ventana_betas
+        self.ventana_zscore   = ventana_zscore
         self._residuos_acum: list[np.ndarray] = []
 
     def generate_signals(self, prices: pd.DataFrame, open_positions: dict) -> dict:
@@ -71,7 +68,7 @@ class RMTBacktestStrategy(Strategy):
             return vacío
 
         R = retornos.values          # (ventana_betas+1, N)
-        T, N = R.shape
+        _, N = R.shape
         tickers = list(retornos.columns)
 
         # R_train: ventana_betas días ANTES del día actual (pasado puro)
@@ -110,23 +107,23 @@ class RMTBacktestStrategy(Strategy):
         abiertas_short = set(open_positions.get("short", []))
         ya_en_cartera  = abiertas_long | abiertas_short
 
-        new_longs  = list(zs[zs < -self.rmt.entry_threshold].drop(index=ya_en_cartera, errors="ignore").index)
-        new_shorts = list(zs[zs >  self.rmt.entry_threshold].drop(index=ya_en_cartera, errors="ignore").index)
+        new_longs  = list(zs[zs < -self.entry_threshold].drop(index=ya_en_cartera, errors="ignore").index)
+        new_shorts = list(zs[zs >  self.entry_threshold].drop(index=ya_en_cartera, errors="ignore").index)
         scores = {t: abs(float(zs[t])) for t in new_longs + new_shorts}
 
         return {
             "long":         new_longs,
             "short":        new_shorts,
-            "cerrar_long":  [t for t in abiertas_long  if zs.get(t, 0) > -self.rmt.exit_threshold],
-            "cerrar_short": [t for t in abiertas_short if zs.get(t, 0) <  self.rmt.exit_threshold],
+            "cerrar_long":  [t for t in abiertas_long  if zs.get(t, 0) > -self.exit_threshold],
+            "cerrar_short": [t for t in abiertas_short if zs.get(t, 0) <  self.exit_threshold],
             "scores":       scores,
         }
 
     def __repr__(self) -> str:
         return (
             f"RMTBacktestStrategy("
-            f"entry={self.rmt.entry_threshold}, "
-            f"exit={self.rmt.exit_threshold}, "
+            f"entry={self.entry_threshold}, "
+            f"exit={self.exit_threshold}, "
             f"ventana_betas={self.ventana_betas}, "
             f"ventana_zscore={self.ventana_zscore})"
         )

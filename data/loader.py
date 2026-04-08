@@ -81,26 +81,8 @@ class DataLoader:
             raise ValueError(f"unidad debe ser 'años', 'meses' o 'dias'. Recibido: '{unidad}'")
 
     # ------------------------------------------------------------------
-    def get_returns(self):
-        """Descarga precios, limpia y devuelve retornos."""
-        prices = self.bajar_precios()
-        prices = self.limpiar_datos(prices)
-        returns = self.calcular_retornos(prices)
-        return returns
-
     def get_prices(self):
-        """Devuelve precios de cierre ajustados."""
-        prices = self.bajar_precios()
-        return self.limpiar_datos(prices)
-
-    def get_opens(self):
-        """Devuelve precios de apertura ajustados (mismo universo que get_prices)."""
-        opens = self.bajar_opens()
-        return self.limpiar_datos(opens)
-
-    # ------------------------------------------------------------------
-    def _get_raw(self):
-        """Descarga y cachea el raw OHLCV para no llamar a yfinance dos veces."""
+        """Precios de cierre ajustados, limpios."""
         if not hasattr(self, "_raw_cache"):
             self._raw_cache = yf.download(
                 self.tickers,
@@ -110,43 +92,31 @@ class DataLoader:
                 auto_adjust=True,
                 progress=False,
             )
-        return self._raw_cache
+        raw = self._raw_cache
+        prices = raw["Close"] if isinstance(raw.columns, pd.MultiIndex) else raw[["Close"]].rename(columns={"Close": self.tickers[0]})
+        return self._limpiar(prices)
 
-    def bajar_precios(self):
-        raw = self._get_raw()
-        if isinstance(raw.columns, pd.MultiIndex):
-            prices = raw["Close"]
-        else:
-            prices = raw[["Close"]].rename(columns={"Close": self.tickers[0]})
-        return prices
+    def get_opens(self):
+        """Precios de apertura ajustados, limpios."""
+        self.get_prices()  # asegura que _raw_cache exista
+        raw = self._raw_cache
+        opens = raw["Open"] if isinstance(raw.columns, pd.MultiIndex) else raw[["Open"]].rename(columns={"Open": self.tickers[0]})
+        return self._limpiar(opens)
 
-    def bajar_opens(self):
-        raw = self._get_raw()
-        if isinstance(raw.columns, pd.MultiIndex):
-            opens = raw["Open"]
-        else:
-            opens = raw[["Open"]].rename(columns={"Open": self.tickers[0]})
-        return opens
+    def get_returns(self):
+        """Retornos diarios (pct_change sobre precios de cierre limpios)."""
+        return self.get_prices().pct_change().dropna(how="all")
 
-    def limpiar_datos(self, prices):
-        # Solo días de semana (irrelevante en semanal/mensual pero no rompe nada)
+    def _limpiar(self, prices):
         prices = prices[prices.index.dayofweek < 5]
-
         if self.fill_method == "ffill":
             prices = prices.ffill()
-
         coverage = prices.notna().mean()
         good_tickers = coverage[coverage >= self.min_coverage].index
         dropped = set(prices.columns) - set(good_tickers)
         if dropped:
             print(f"[DataLoader] Tickers descartados por baja cobertura: {sorted(dropped)}")
-        prices = prices[good_tickers]
-
-        prices = prices.dropna(how="all")
-        return prices
-
-    def calcular_retornos(self, prices):
-        return prices.pct_change().dropna(how="all")
+        return prices[good_tickers].dropna(how="all")
 
     # ------------------------------------------------------------------
     def __repr__(self):
@@ -158,69 +128,4 @@ class DataLoader:
 
 
 # ─── Helpers para backtesting single-ticker ───────────────────────────────────
-
-def load_ohlcv(
-    ticker: str,
-    start: str,
-    end: str | None = None,
-    interval: str = "1d",
-) -> pd.DataFrame:
-    """
-    Descarga datos OHLCV de un único ticker desde Yahoo Finance.
-
-    Parámetros
-    ----------
-    ticker   : str  — símbolo bursátil (ej. "AAPL", "MSFT").
-    start    : str  — fecha de inicio en formato "YYYY-MM-DD".
-    end      : str  — fecha de fin (default: hoy).
-    interval : str  — granularidad yfinance (default: "1d").
-
-    Retorna
-    -------
-    pd.DataFrame con DatetimeIndex y columnas Open, High, Low, Close, Volume.
-    """
-    end_date = end or pd.Timestamp.today().strftime("%Y-%m-%d")
-    raw = yf.download(
-        ticker,
-        start=start,
-        end=end_date,
-        interval=interval,
-        auto_adjust=True,
-        progress=False,
-    )
-    # yfinance a veces devuelve MultiIndex cuando se pasa un solo ticker
-    if isinstance(raw.columns, pd.MultiIndex):
-        raw.columns = raw.columns.droplevel(1)
-
-    df = raw[["Open", "High", "Low", "Close", "Volume"]].dropna()
-    df.index = pd.to_datetime(df.index)
-    df.index.name = "Date"
-    return df
-
-
-def load_ohlcv_from_csv(filepath: str, date_column: str = "Date") -> pd.DataFrame:
-    """
-    Carga datos OHLCV desde un CSV local.
-
-    El CSV debe tener columnas: Date, Open, High, Low, Close, Volume.
-    La columna de fechas se usa como índice.
-
-    Parámetros
-    ----------
-    filepath    : str — ruta al archivo CSV.
-    date_column : str — nombre de la columna de fechas (default: "Date").
-
-    Retorna
-    -------
-    pd.DataFrame con DatetimeIndex y columnas Open, High, Low, Close, Volume.
-    """
-    df = pd.read_csv(filepath, parse_dates=[date_column], index_col=date_column)
-    df.index = pd.to_datetime(df.index)
-    df.index.name = "Date"
-
-    required = {"Open", "High", "Low", "Close", "Volume"}
-    missing = required - set(df.columns)
-    if missing:
-        raise ValueError(f"El CSV debe tener columnas {required}. Faltan: {missing}")
-
-    return df[["Open", "High", "Low", "Close", "Volume"]].dropna()
+#?????

@@ -9,15 +9,7 @@ import pandas as pd
 
 
 class RMTStrategy:
-    """
-    Genera señales de entrada/salida usando RMT + z-score de residuos.
-    Parámetros: entry_threshold (abre posición) y exit_threshold (cierra posición).
-    """
-
-    def __init__(self, entry_threshold=2.0, exit_threshold=0.5):
-        self.entry_threshold = entry_threshold
-        self.exit_threshold  = exit_threshold
-
+    """Pipeline RMT puro: matemática sin lógica de trading."""
 
     def correlacion(self, R):
         return np.corrcoef(R.T)  # (N, N)
@@ -52,70 +44,6 @@ class RMTStrategy:
         desvio = residuos_acum.std(axis=0)
         desvio[desvio == 0] = np.nan
         return (residuos_acum[-1] - media) / desvio  # (N,)
-
-    # ── Interfaz pública ──────────────────────────────────────────────────────
-
-    def get_signals(self, retornos, residuos_historicos=None, posiciones_abiertas=None):
-        """
-        Recibe retornos (T, N) y opcionalmente residuos históricos acumulados.
-
-        residuos_historicos : DataFrame (fechas × tickers) cargado desde disco.
-            Si se pasa, los residuos nuevos se agregan al historial y el z-score
-            se calcula sobre toda la historia — no solo la ventana actual.
-
-        posiciones_abiertas : dict {"long": [...], "short": [...]}
-            Si es None, solo calcula entradas.
-
-        Devuelve:
-            signals  : {"long", "short", "cerrar_long", "cerrar_short"}
-            residuos : DataFrame con los residuos del período actual (para persistir)
-            zscore   : Series con el z-score de cada ticker
-        """
-        R       = retornos.values
-        tickers = list(retornos.columns)
-        T, N    = R.shape
-
-        corr           = self.correlacion(R)
-        autovalores, autovectores = self.pca(corr)
-        V              = self.filtrar_marchenko_pastur(autovalores, autovectores, T, N)
-
-        if V.shape[1] == 0:
-            vacío = {"long": [], "short": [], "cerrar_long": [], "cerrar_short": []}
-            return vacío, pd.DataFrame(), pd.Series(dtype=float)
-
-        F, B            = self.betas(R, V)
-        residuos_nuevos = self.residuos(R, F, B)
-
-        df_residuos_nuevos = pd.DataFrame(residuos_nuevos, index=retornos.index, columns=tickers)
-
-        # Acumular con el historial si existe — el z-score necesita toda la historia
-        if residuos_historicos is not None and not residuos_historicos.empty:
-            cols_comunes     = residuos_historicos.columns.intersection(tickers)
-            df_para_zscore   = pd.concat([residuos_historicos[cols_comunes], df_residuos_nuevos[cols_comunes]])
-        else:
-            cols_comunes     = tickers
-            df_para_zscore   = df_residuos_nuevos
-
-        acum_array = np.cumsum(df_para_zscore.values, axis=0)
-        zs = pd.Series(self.zscore(acum_array), index=df_para_zscore.columns).reindex(tickers)
-
-        # Señales de entrada / salida
-        if posiciones_abiertas is None:
-            abiertas_long, abiertas_short = set(), set()
-        else:
-            abiertas_long  = set(posiciones_abiertas.get("long",  []))
-            abiertas_short = set(posiciones_abiertas.get("short", []))
-
-        ya_en_cartera = abiertas_long | abiertas_short
-
-        signals = {
-            "long":         list(zs[zs < -self.entry_threshold].drop(index=ya_en_cartera, errors="ignore").index),
-            "short":        list(zs[zs >  self.entry_threshold].drop(index=ya_en_cartera, errors="ignore").index),
-            "cerrar_long":  [t for t in abiertas_long  if zs.get(t, 0) > -self.exit_threshold],
-            "cerrar_short": [t for t in abiertas_short if zs.get(t, 0) <  self.exit_threshold],
-        }
-
-        return signals, df_residuos_nuevos, zs
 
     def calcular_residuos_rolling(self, retornos, ventana=252):
         """
@@ -197,8 +125,3 @@ class RMTStrategy:
         p_value = float(adfuller(serie_limpia)[1])
         return p_value < significance, round(p_value, 4)
 
-    def __repr__(self):
-        return (
-            f"RMTStrategy(entry_threshold={self.entry_threshold}, "
-            f"exit_threshold={self.exit_threshold})"
-        )

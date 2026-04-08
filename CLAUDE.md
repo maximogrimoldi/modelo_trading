@@ -10,11 +10,15 @@ Motor de **statistical arbitrage** basado en **Random Matrix Theory (RMT)**. La 
 # Activar el entorno virtual
 source venv/bin/activate
 
-# Correr el pipeline completo
+# Señales del día (modo operativo)
 python main.py
+
+# Backtest histórico
+python run.py
 ```
 
-La primera vez descarga 3 años de datos del S&P 100, calcula residuos y muestra señales. En corridas posteriores carga el historial acumulado de residuos y actualiza el estado de posiciones.
+`main.py` descarga 3 años de datos, calcula residuos y muestra señales para hoy. Persiste el estado entre corridas.  
+`run.py` simula la estrategia sobre datos históricos (2021–2024) y produce métricas y gráficos.
 
 ## Qué hace cada archivo
 
@@ -22,11 +26,17 @@ La primera vez descarga 3 años de datos del S&P 100, calcula residuos y muestra
 |---|---|
 | `data/loader.py` | Descarga y limpia precios de Yahoo Finance. Solo datos, sin lógica de trading. |
 | `strategy/signals.py` | Pipeline RMT completo. Funciones puras por paso + clase `RMTStrategy`. |
-| `backtest/engine.py` | Lleva registro de posiciones abiertas, calcula P&L por trade, guarda log, calcula métricas. |
-| `main.py` | Orquesta todo: carga historial → corre estrategia → muestra señales → guarda estado. |
-| `results/residuos_acum.csv` | Historial persistido de residuos idiosincráticos (fechas × tickers). |
-| `results/trades_log.csv` | Registro de todos los trades cerrados con su retorno. |
-| `results/posiciones_abiertas.csv` | Estado actual de la cartera — se pasa a la próxima corrida. |
+| `strategy/base.py` | Interfaz abstracta `Strategy` que toda estrategia debe implementar. |
+| `strategy/rmt_backtest.py` | Adapter de `RMTStrategy` para el motor de backtesting. Calcula residuos incrementalmente (O(n)). |
+| `backtest/engine.py` | Motor de simulación barra a barra. Ejecuta señales, marca a mercado, calcula métricas (Sharpe, Calmar, etc.). |
+| `broker/ibkr.py` | Cliente TWS/IBKR. Obtiene precios en tiempo real y envía órdenes de mercado. |
+| `main.py` | Modo operativo: descarga datos → calcula z-scores → genera señales → persiste estado. |
+| `run.py` | Modo backtest: configura `BacktestEngine` con `RMTBacktestStrategy` y corre simulación histórica. |
+| `example_strategy.py` | Ejemplo didáctico: momentum cross-sectional. Muestra cómo implementar `Strategy`. |
+| `results/posiciones_abiertas.csv` | Estado actual de la cartera — se carga y actualiza en cada corrida de `main.py`. |
+| `results/posiciones_hoy.csv` | Señales del día: nuevas entradas, posiciones activas, cierres sugeridos. |
+| `results/trades.csv` | Log de trades del backtest con P&L por operación. |
+| `results/equity_curve.csv` | Curva de equity del backtest (fechas × valor del portafolio). |
 
 ## Efecto de cambiar los thresholds
 
